@@ -88,9 +88,8 @@ function storeSessionAndCode(sessionId, sessionPath) {
 
 // create a Baileys socket bound to a specific sessionId (multi-file auth)
 // opts.ownerJid: JID to send short code to
-// opts.mobile: true for pair login (phone), false for QR (web-style)
 async function createSocket(sessionId, opts = {}) {
-  const { ownerJid, mobile = false } = opts
+  const { ownerJid } = opts
   const sessionPath = path.join(SESSIONS_DIR, sessionId)
   if (!fs.existsSync(sessionPath)) fs.mkdirSync(sessionPath, { recursive: true })
 
@@ -99,8 +98,8 @@ async function createSocket(sessionId, opts = {}) {
   const sock = makeWASocket({
     auth: state,
     printQRInTerminal: false,
-    browser: mobile ? Browsers.android('Chrome') : Browsers.macOS('Chrome'),
-    mobile: !!mobile
+    // Use normal MD browser for both QR + Pair
+    browser: Browsers.ubuntu('Chrome')
   })
 
   // keep auth up to date & rebuild short code when creds change
@@ -112,7 +111,9 @@ async function createSocket(sessionId, opts = {}) {
 
   // when connection opens, ensure short code stored and (optionally) send to WhatsApp
   sock.ev.on('connection.update', async (update) => {
-    const { connection } = update
+    const { connection, lastDisconnect } = update
+    log.info({ sessionId, connection }, 'connection.update (generic)')
+
     if (connection === 'open') {
       await saveCreds()
       const shortCode = storeSessionAndCode(sessionId, sessionPath)
@@ -137,6 +138,25 @@ async function createSocket(sessionId, opts = {}) {
         }
       }
     }
+
+    if (connection === 'close') {
+      const statusCode = lastDisconnect?.error?.output?.statusCode
+      const shouldReconnect = statusCode !== DisconnectReason.loggedOut
+
+      log.warn({ sessionId, statusCode }, 'Socket connection closed')
+
+      if (statusCode === DisconnectReason.restartRequired) {
+        log.warn({ sessionId }, 'restartRequired, restarting socket...')
+        createSocket(sessionId, { ownerJid }).catch((err) => {
+          log.error({ err, sessionId }, 'Error restarting socket')
+        })
+        return
+      }
+
+      if (!shouldReconnect) {
+        log.warn({ sessionId }, 'Not reconnecting because logged out')
+      }
+    }
   })
 
   return sock
@@ -152,7 +172,7 @@ app.get('/api/session/qr', async (req, res) => {
 
   try {
     // QR login: web-style
-    const sock = await createSocket(sessionId, { mobile: false })
+    const sock = await createSocket(sessionId, {})
 
     let answered = false
 
@@ -199,7 +219,7 @@ app.get('/api/session/qr', async (req, res) => {
 
         if (statusCode === DisconnectReason.restartRequired) {
           log.warn({ sessionId }, 'restartRequired for QR, restarting socket...')
-          createSocket(sessionId, { mobile: false }).catch((err) => {
+          createSocket(sessionId, {}).catch((err) => {
             log.error({ err, sessionId }, 'Error restarting QR socket')
           })
           return
@@ -231,9 +251,9 @@ app.get('/api/session/qr', async (req, res) => {
  */
 app.get('/api/session/pair', async (req, res) => {
   const rawPhone = (req.query.phone || '').toString().trim()
-  const phone = rawPhone.replace(/[^\d]/g, '')
+  const phoneDigits = rawPhone.replace(/[^\d]/g, '')
 
-  if (!/^\d{8,15}$/.test(phone)) {
+  if (!/^\d{8,15}$/.test(phoneDigits)) {
     return res.status(400).json({
       error: 'invalid_phone',
       message: 'phone must be digits only, E.164 without + (ex: 918888888888)'
@@ -241,102 +261,44 @@ app.get('/api/session/pair', async (req, res) => {
   }
 
   const sessionId = 'P-' + nanoid(10)
-  log.info({ sessionId, phone }, 'Pair-code session requested')
+  const ownerJid = `${phoneDigits}@s.whatsapp.net`
+  log.info({ sessionId, phoneDigits }, 'Pair-code session requested')
 
   try {
-    // Pair login: mobile-style socket
-    const ownerJid = `${phone}@s.whatsapp.net`
-    const sock = await createSocket(sessionId, { ownerJid, mobile: true })
+    // Pair login uses same MD socket style, no mobile:true
+    const sock = await createSocket(sessionId, { ownerJid })
 
-    let answered = false
-    let requested = false
+    // Directly request pairing code from Baileys
+    let code = await sock.requestPairingCode(phoneDigits)
 
-    const timeout = setTimeout(() => {
-      if (!answered) {
-        answered = true
-        log.warn({ sessionId }, 'Pair-code timeout')
-        res.status(504).json({ error: 'pair_timeout' })
-        try {
-          sock.ws?.close()
-        } catch {}
-      }
-    }, 60_000)
+    // Some forks like the code grouped, format as XXXX-XXXX-XXXX
+    if (code && typeof code === 'string') {
+      code = code.match(/.{1,4}/g)?.join('-') || code
+    }
 
-    sock.ev.on('connection.update', async (update) => {
-      const { connection, lastDisconnect } = update
+    log.info({ sessionId, phoneDigits, code }, 'Pairing code generated')
 
-      log.info(
-        {
-          sessionId,
-          connection,
-          statusCode: lastDisconnect?.error?.output?.statusCode
-        },
-        'connection.update (pair)'
-      )
-
-      // request pairing code once when starting / connecting
-      if (!requested && (connection === 'connecting' || connection === 'open')) {
-        requested = true
-        try {
-          let code = await sock.requestPairingCode(phone)
-          if (code && typeof code === 'string') {
-            code = code.match(/.{1,4}/g)?.join('-') || code
-          }
-
-          if (!answered) {
-            answered = true
-            clearTimeout(timeout)
-            log.info({ sessionId, phone, code }, 'Pairing code generated')
-            return res.json({
-              sessionId,
-              phone,
-              code,
-              status: 'pair_code_generated'
-            })
-          }
-        } catch (err) {
-          if (!answered) {
-            answered = true
-            clearTimeout(timeout)
-            log.error({ err, sessionId }, 'Error generating pair code')
-            return res.status(500).json({
-              error: 'pair_code_error',
-              details: String(err?.message || err)
-            })
-          }
-        }
-      }
-
-      if (connection === 'close') {
-        const statusCode = lastDisconnect?.error?.output?.statusCode
-        const shouldReconnect = statusCode !== DisconnectReason.loggedOut
-
-        log.warn({ sessionId, statusCode }, 'Pair connection closed')
-
-        if (statusCode === DisconnectReason.restartRequired) {
-          log.warn({ sessionId }, 'restartRequired for pair, restarting socket...')
-          createSocket(sessionId, { ownerJid, mobile: true }).catch((err) => {
-            log.error({ err, sessionId }, 'Error restarting pair socket')
-          })
-          return
-        }
-
-        if (!answered) {
-          answered = true
-          clearTimeout(timeout)
-          return res.status(500).json({
-            error: 'connection_closed',
-            statusCode,
-            shouldReconnect
-          })
-        }
-      }
+    return res.json({
+      sessionId,
+      phone: phoneDigits,
+      code,
+      status: 'pair_code_generated'
     })
   } catch (err) {
-    log.error({ err, sessionId }, 'Error in /api/session/pair root try')
+    log.error(
+      {
+        sessionId,
+        phoneDigits,
+        errMessage: err?.message,
+        errStack: err?.stack
+      },
+      'Error generating pair code'
+    )
+
     return res.status(500).json({
       error: 'pair_code_error',
-      details: String(err?.message || err)
+      message: 'Failed to generate pair code',
+      details: err?.message || String(err)
     })
   }
 })

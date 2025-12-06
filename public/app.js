@@ -143,8 +143,14 @@ qrBtn.addEventListener('click', async () => {
     const data = await res.json()
 
     if (!res.ok) {
-      throw new Error(data.message || data.error || 'Unknown error')
-    }
+  const msg =
+    data.details ||
+    data.message ||
+    data.error ||
+    'Unknown error from LUX pair endpoint'
+  throw new Error(msg)
+}
+
 
     if (data.qr) {
       qrImage.src = data.qr
