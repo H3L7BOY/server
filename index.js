@@ -12,7 +12,7 @@ import { fileURLToPath } from 'url'
 // pull named exports we actually have
 const { DisconnectReason, useMultiFileAuthState, Browsers } = baileys
 
-// robustly locate socket creator
+// robustly locate socket creator (handles different fork export styles)
 const makeWASocket =
   (typeof baileys.default === 'function' && baileys.default) ||
   (typeof baileys.makeWASocket === 'function' && baileys.makeWASocket) ||
@@ -161,7 +161,9 @@ app.get('/api/session/qr', async (req, res) => {
         answered = true
         log.warn({ sessionId }, 'QR timeout')
         res.status(504).json({ error: 'QR timeout' })
-        try { sock.ws?.close() } catch {}
+        try {
+          sock.ws?.close()
+        } catch {}
       }
     }, 60_000)
 
@@ -254,7 +256,9 @@ app.get('/api/session/pair', async (req, res) => {
         answered = true
         log.warn({ sessionId }, 'Pair-code timeout')
         res.status(504).json({ error: 'pair_timeout' })
-        try { sock.ws?.close() } catch {}
+        try {
+          sock.ws?.close()
+        } catch {}
       }
     }, 60_000)
 
@@ -385,5 +389,5 @@ app.get('/api/session/creds/:code', (req, res) => {
 })
 
 app.listen(PORT, () => {
-  log.info(`Session server running on port ${PORT}`)
+  log.info(`LUX Session server running on port ${PORT}`)
 })

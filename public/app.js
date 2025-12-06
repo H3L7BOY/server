@@ -1,120 +1,181 @@
-const startQrBtn = document.getElementById('startQr')
-const qrArea = document.getElementById('qrArea')
-const qrImg = document.getElementById('qrImg')
-const qrStatus = document.getElementById('qrStatus')
+const API_BASE = '' // same origin
 
-const startPairBtn = document.getElementById('startPair')
-const phoneInput = document.getElementById('phoneInput')
-const pairArea = document.getElementById('pairArea')
-const pairStatus = document.getElementById('pairStatus')
-const pairCodeEl = document.getElementById('pairCode')
-
-const sessionStatus = document.getElementById('sessionStatus')
-const sessionCodeEl = document.getElementById('sessionCode')
-const copyBtn = document.getElementById('copyBtn')
-
-let currentSessionId = null
-let pollInterval = null
-let currentShortCode = null
-
-async function fetchJson(url) {
-  const res = await fetch(url)
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(`HTTP ${res.status}: ${text}`)
-  }
-  return res.json()
+// Tab switching
+const tabs = document.querySelectorAll('.tab')
+const panels = {
+  pair: document.getElementById('tab-pair'),
+  qr: document.getElementById('tab-qr')
 }
 
-function startPollingResult(sessionId) {
-  if (!sessionId) return
-  if (pollInterval) clearInterval(pollInterval)
+tabs.forEach((tab) => {
+  tab.addEventListener('click', () => {
+    const target = tab.dataset.tab
 
-  currentSessionId = sessionId
-  sessionStatus.textContent = 'Waiting for session...'
-  sessionCodeEl.textContent = ''
-  copyBtn.classList.add('hidden')
-  currentShortCode = null
+    tabs.forEach((t) => t.classList.remove('active'))
+    tab.classList.add('active')
 
-  pollInterval = setInterval(async () => {
-    try {
-      const data = await fetchJson(`/api/session/result/${currentSessionId}`)
-      // IMPORTANT: backend returns { code: "LUX~xxxx" }
-      if (data.ready && data.code) {
-        clearInterval(pollInterval)
-        pollInterval = null
-
-        currentShortCode = data.code
-        sessionStatus.textContent = 'Session ready. Use this LUX code:'
-        sessionCodeEl.textContent = data.code
-        copyBtn.classList.remove('hidden')
-      }
-    } catch (err) {
-      console.error('Error polling session result:', err)
-    }
-  }, 3000)
-}
-
-startQrBtn.addEventListener('click', async () => {
-  sessionStatus.textContent = 'Waiting for session...'
-  sessionCodeEl.textContent = ''
-  copyBtn.classList.add('hidden')
-  currentShortCode = null
-
-  try {
-    const data = await fetchJson('/api/session/qr')
-    currentSessionId = data.sessionId
-
-    qrArea.classList.remove('hidden')
-    qrImg.src = data.qr
-    qrStatus.textContent = 'Scan this QR in WhatsApp (Linked Devices).'
-
-    startPollingResult(currentSessionId)
-  } catch (err) {
-    console.error(err)
-    qrArea.classList.remove('hidden')
-    qrStatus.textContent = 'Failed to generate QR.'
-  }
+    Object.entries(panels).forEach(([name, el]) => {
+      el.classList.toggle('active', name === target)
+    })
+  })
 })
 
-startPairBtn.addEventListener('click', async () => {
-  const phoneRaw = (phoneInput.value || '').trim()
-  const phone = phoneRaw.replace(/[^\d]/g, '')
+// Pair code elements
+const phoneInput = document.getElementById('phone-input')
+const pairBtn = document.getElementById('pair-btn')
+const pairStatus = document.getElementById('pair-status')
+const pairCodeContainer = document.getElementById('pair-code-container')
+const pairCodeDisplay = document.getElementById('pair-code')
+const luxCodeContainerPair = document.getElementById('lux-code-container-pair')
+const luxCodePair = document.getElementById('lux-code-pair')
+const copyLuxPair = document.getElementById('copy-lux-pair')
 
-  if (!/^\d{8,15}$/.test(phone)) {
-    pairArea.classList.remove('hidden')
-    pairStatus.textContent = 'Enter a valid phone number (8–15 digits).'
-    pairCodeEl.textContent = ''
+// QR elements
+const qrBtn = document.getElementById('qr-btn')
+const qrStatus = document.getElementById('qr-status')
+const qrContainer = document.getElementById('qr-container')
+const qrImage = document.getElementById('qr-image')
+const luxCodeContainerQr = document.getElementById('lux-code-container-qr')
+const luxCodeQr = document.getElementById('lux-code-qr')
+const copyLuxQr = document.getElementById('copy-lux-qr')
+
+let pollIntervalId = null
+
+function clearPoll() {
+  if (pollIntervalId) {
+    clearInterval(pollIntervalId)
+    pollIntervalId = null
+  }
+}
+
+async function pollForLuxCode(sessionId, mode) {
+  clearPoll()
+  pollIntervalId = setInterval(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/session/result/${sessionId}`)
+      const data = await res.json()
+
+      if (data.ready && data.code) {
+        clearPoll()
+        const luxCode = data.code
+
+        if (mode === 'pair') {
+          luxCodePair.textContent = luxCode
+          luxCodeContainerPair.classList.remove('hidden')
+          pairStatus.textContent = 'Session code generated successfully.'
+          pairStatus.className = 'status success'
+        } else if (mode === 'qr') {
+          luxCodeQr.textContent = luxCode
+          luxCodeContainerQr.classList.remove('hidden')
+          qrStatus.textContent = 'Session code generated successfully.'
+          qrStatus.className = 'status success'
+        }
+      }
+    } catch (err) {
+      console.error('Polling error', err)
+    }
+  }, 4000)
+}
+
+// Pair code flow
+pairBtn.addEventListener('click', async () => {
+  const phone = phoneInput.value.trim()
+
+  pairStatus.textContent = ''
+  pairStatus.className = 'status'
+  pairCodeContainer.classList.add('hidden')
+  luxCodeContainerPair.classList.add('hidden')
+
+  if (!/^\d{8,15}$/.test(phone.replace(/[^\d]/g, ''))) {
+    pairStatus.textContent =
+      'Invalid phone. Use digits only, E.164 format without + (ex: 918888888888).'
+    pairStatus.classList.add('error')
     return
   }
 
-  pairArea.classList.remove('hidden')
-  pairStatus.textContent = 'Requesting pair code...'
-  pairCodeEl.textContent = ''
+  pairBtn.disabled = true
+  pairStatus.textContent = 'Requesting pair code from LUX...'
+  pairStatus.classList.remove('error')
+  pairStatus.classList.add('success')
 
   try {
-    const data = await fetchJson(`/api/session/pair?phone=${encodeURIComponent(phone)}`)
-    // data = { sessionId, phone, code, status }
-    currentSessionId = data.sessionId
-    pairStatus.textContent = 'Enter this code in WhatsApp (Link with phone).'
-    pairCodeEl.textContent = data.code || '(no code returned)'
+    const res = await fetch(
+      `${API_BASE}/api/session/pair?phone=${encodeURIComponent(phone)}`
+    )
+    const data = await res.json()
 
-    startPollingResult(currentSessionId)
+    if (!res.ok) {
+      throw new Error(data.message || data.error || 'Unknown error')
+    }
+
+    pairCodeDisplay.textContent = data.code || '----'
+    pairCodeContainer.classList.remove('hidden')
+    pairStatus.textContent =
+      'Enter this pair code in WhatsApp → Linked devices → Link with phone number.'
+    pairStatus.className = 'status success'
+
+    if (data.sessionId) {
+      pollForLuxCode(data.sessionId, 'pair')
+    }
   } catch (err) {
     console.error(err)
-    pairStatus.textContent = 'Failed to get pair code.'
-    pairCodeEl.textContent = ''
+    pairStatus.textContent = `Error: ${err.message}`
+    pairStatus.className = 'status error'
+  } finally {
+    pairBtn.disabled = false
   }
 })
 
-copyBtn.addEventListener('click', async () => {
-  const text = currentShortCode || sessionCodeEl.textContent.trim()
+// QR flow
+qrBtn.addEventListener('click', async () => {
+  qrStatus.textContent = ''
+  qrStatus.className = 'status'
+  qrContainer.classList.add('hidden')
+  luxCodeContainerQr.classList.add('hidden')
+
+  qrBtn.disabled = true
+  qrStatus.textContent = 'Requesting QR from LUX...'
+  qrStatus.classList.remove('error')
+  qrStatus.classList.add('success')
+
+  try {
+    const res = await fetch(`${API_BASE}/api/session/qr`)
+    const data = await res.json()
+
+    if (!res.ok) {
+      throw new Error(data.message || data.error || 'Unknown error')
+    }
+
+    if (data.qr) {
+      qrImage.src = data.qr
+      qrContainer.classList.remove('hidden')
+      qrStatus.textContent =
+        'Scan the QR from WhatsApp → Linked devices → Link a device.'
+      qrStatus.className = 'status success'
+    }
+
+    if (data.sessionId) {
+      pollForLuxCode(data.sessionId, 'qr')
+    }
+  } catch (err) {
+    console.error(err)
+    qrStatus.textContent = `Error: ${err.message}`
+    qrStatus.className = 'status error'
+  } finally {
+    qrBtn.disabled = false
+  }
+})
+
+// Copy helpers
+async function copyText(text) {
   if (!text) return
   try {
     await navigator.clipboard.writeText(text)
-    copyBtn.textContent = 'Copied!'
-    setTimeout(() => (copyBtn.textContent = 'Copy Short Code'), 1500)
-  } catch (err) {
-    console.error('Clipboard error:', err)
+    alert('Copied to clipboard.')
+  } catch {
+    alert('Failed to copy, copy manually.')
   }
-})
+}
+
+copyLuxPair.addEventListener('click', () => copyText(luxCodePair.textContent))
+copyLuxQr.addEventListener('click', () => copyText(luxCodeQr.textContent))

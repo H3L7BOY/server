@@ -1,56 +1,105 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>LUX Session</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="stylesheet" href="/style.css" />
-</head>
-<body>
-  <div class="page">
-    <header class="top-bar">
-      <h1>LUX Session</h1>
-      <span class="tag">WhatsApp MD</span>
-    </header>
-
-    <main class="content">
-      <section class="card">
-        <h2>QR Login</h2>
-        <button id="startQr" class="btn">Generate QR</button>
-
-        <div id="qrArea" class="qr-area hidden">
-          <img id="qrImg" alt="Scan this QR with WhatsApp" />
-          <p id="qrStatus" class="status">Scan this QR in WhatsApp (Linked Devices).</p>
+  <head>
+    <meta charset="UTF-8" />
+    <title>LUX Session Generator</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="header">
+        <div class="logo">
+          <span class="logo-dot"></span>
+          <span class="logo-text">LUX</span>
         </div>
-      </section>
-
-      <section class="card">
-        <h2>Pair-Code Login</h2>
-        <p class="hint">Enter your WhatsApp number (digits only, no +).</p>
-        <div class="pair-row">
-          <input
-            id="phoneInput"
-            type="tel"
-            placeholder="918888888888"
-            class="input"
-          />
-          <button id="startPair" class="btn">Get Pair Code</button>
+        <div class="header-right">
+          <span class="badge">Session Generator</span>
         </div>
-        <div id="pairArea" class="pair-area hidden">
-          <p id="pairStatus" class="status">Waiting...</p>
-          <pre id="pairCode" class="session-code"></pre>
-        </div>
-      </section>
+      </header>
 
-      <section class="card">
-        <h2>Your LUX Session</h2>
-        <p id="sessionStatus">Waiting for session...</p>
-        <pre id="sessionCode" class="session-code"></pre>
-        <button id="copyBtn" class="btn secondary hidden">Copy Short Code</button>
-      </section>
-    </main>
-  </div>
+      <main class="main">
+        <section class="card">
+          <div class="tabs">
+            <button class="tab active" data-tab="pair">Pair Code</button>
+            <button class="tab" data-tab="qr">QR Login</button>
+          </div>
 
-  <script src="/app.js"></script>
-</body>
+          <!-- Pair Code Content -->
+          <div class="tab-panel active" id="tab-pair">
+            <h2>Generate Pair Code</h2>
+            <p class="subtitle">
+              Link your WhatsApp to <strong>LUX</strong> using your phone number.
+            </p>
+
+            <label class="field">
+              <span>Phone number (E.164 without +)</span>
+              <input
+                id="phone-input"
+                type="tel"
+                placeholder="918888888888"
+                autocomplete="off"
+              />
+            </label>
+
+            <button id="pair-btn" class="btn primary">Get Pair Code</button>
+
+            <div id="pair-status" class="status"></div>
+
+            <div id="pair-code-container" class="code-box hidden">
+              <span class="label">Your Pair Code</span>
+              <div id="pair-code" class="code-display">----</div>
+              <ol class="steps">
+                <li>Open WhatsApp &gt; Linked devices &gt; Link with phone number.</li>
+                <li>Enter the pair code shown above.</li>
+                <li>Wait a few seconds while LUX connects.</li>
+              </ol>
+            </div>
+
+            <div id="lux-code-container-pair" class="code-box hidden">
+              <span class="label">Your LUX Session Code</span>
+              <div id="lux-code-pair" class="code-display"></div>
+              <button class="btn ghost" id="copy-lux-pair">Copy LUX Code</button>
+              <p class="hint">Use this code where your LUX bot asks for SESSION_ID.</p>
+            </div>
+          </div>
+
+          <!-- QR Content -->
+          <div class="tab-panel" id="tab-qr">
+            <h2>Generate QR Session</h2>
+            <p class="subtitle">
+              Scan a QR to link WhatsApp Web to <strong>LUX</strong>.
+            </p>
+
+            <button id="qr-btn" class="btn primary">Get QR Code</button>
+
+            <div id="qr-status" class="status"></div>
+
+            <div id="qr-container" class="qr-box hidden">
+              <span class="label">Scan This QR from WhatsApp</span>
+              <img id="qr-image" alt="QR Code" />
+              <ol class="steps">
+                <li>Open WhatsApp &gt; Linked devices &gt; Link a device.</li>
+                <li>Scan the QR shown above.</li>
+                <li>Wait until LUX finishes generating the session.</li>
+              </ol>
+            </div>
+
+            <div id="lux-code-container-qr" class="code-box hidden">
+              <span class="label">Your LUX Session Code</span>
+              <div id="lux-code-qr" class="code-display"></div>
+              <button class="btn ghost" id="copy-lux-qr">Copy LUX Code</button>
+              <p class="hint">Use this code where your LUX bot asks for SESSION_ID.</p>
+            </div>
+          </div>
+        </section>
+
+        <footer class="footer">
+          <span>Made for LUX • Do not share your session code with anyone.</span>
+        </footer>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
 </html>
